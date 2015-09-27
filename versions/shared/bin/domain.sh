@@ -12,6 +12,7 @@ cygwin=false;
 darwin=false;
 linux=false;
 solaris=false;
+other=false;
 case "`uname`" in
     CYGWIN*)
         cygwin=true
@@ -27,15 +28,10 @@ case "`uname`" in
     SunOS*)
         solaris=true
         ;;
+    *)
+        other=true
+        ;;
 esac
-
-# Read an optional running configuration file
-if [ "x$DOMAIN_CONF" = "x" ]; then
-    DOMAIN_CONF="$DIRNAME/domain.conf"
-fi
-if [ -r "$DOMAIN_CONF" ]; then
-    . "$DOMAIN_CONF"
-fi
 
 # For Cygwin, ensure paths are in UNIX format before anything is touched
 if $cygwin ; then
@@ -60,6 +56,14 @@ else
  fi
 fi
 export JBOSS_HOME
+
+# Read an optional running configuration file
+if [ "x$DOMAIN_CONF" = "x" ]; then
+    DOMAIN_CONF="$DIRNAME/domain.conf"
+fi
+if [ -r "$DOMAIN_CONF" ]; then
+    . "$DOMAIN_CONF"
+fi
 
 # Setup the JVM
 if [ "x$JAVA" = "x" ]; then
@@ -113,34 +117,60 @@ if [ "x$JBOSS_MODULEPATH" = "x" ]; then
     JBOSS_MODULEPATH="$JBOSS_HOME/modules"
 fi
 
-if $linux || $solaris; then
+if $linux; then
     # consolidate the host-controller and command line opts
-    HOST_CONTROLLER_OPTS="$HOST_CONTROLLER_JAVA_OPTS $@"
+    HOST_CONTROLLER_OPTS="$HOST_CONTROLLER_JAVA_OPTS $SERVER_OPTS"
     # process the host-controller options
     for var in $HOST_CONTROLLER_OPTS
     do
-      case $var in
+       # Remove quotes
+      p=`echo $var | tr -d "'"`
+      case $p in
         -Djboss.domain.base.dir=*)
-             JBOSS_BASE_DIR=`readlink -m ${var#*=}`
+             JBOSS_BASE_DIR=`readlink -m ${p#*=}`
              ;;
         -Djboss.domain.log.dir=*)
-             JBOSS_LOG_DIR=`readlink -m ${var#*=}`
+             JBOSS_LOG_DIR=`readlink -m ${p#*=}`
              ;;
         -Djboss.domain.config.dir=*)
-             JBOSS_CONFIG_DIR=`readlink -m ${var#*=}`
+             JBOSS_CONFIG_DIR=`readlink -m ${p#*=}`
              ;;
       esac
     done
 fi
 
-# No readlink -m on BSD
-if $darwin; then
+if $solaris; then
     # consolidate the host-controller and command line opts
-    HOST_CONTROLLER_OPTS="$HOST_CONTROLLER_JAVA_OPTS $@"
+    HOST_CONTROLLER_OPTS="$HOST_CONTROLLER_JAVA_OPTS $SERVER_OPTS"
     # process the host-controller options
     for var in $HOST_CONTROLLER_OPTS
     do
-      case $var in
+       # Remove quotes
+      p=`echo $var | tr -d "'"`
+      case $p in
+        -Djboss.domain.base.dir=*)
+             JBOSS_BASE_DIR=`echo $p | awk -F= '{print $2}'`
+             ;;
+        -Djboss.domain.log.dir=*)
+             JBOSS_LOG_DIR=`echo $p | awk -F= '{print $2}'`
+             ;;
+        -Djboss.domain.config.dir=*)
+             JBOSS_CONFIG_DIR=`echo $p | awk -F= '{print $2}'`
+             ;;
+      esac
+    done
+fi
+
+# No readlink -m on BSD and possibly other distros
+if $darwin || $other ; then
+    # consolidate the host-controller and command line opts
+    HOST_CONTROLLER_OPTS="$HOST_CONTROLLER_JAVA_OPTS $SERVER_OPTS"
+    # process the host-controller options
+    for var in $HOST_CONTROLLER_OPTS
+    do
+       # Remove quotes
+       p=`echo $var | tr -d "'"`
+       case $p in
         -Djboss.domain.base.dir=*)
              JBOSS_BASE_DIR=`cd ${p#*=} ; pwd -P`
              ;;
@@ -190,7 +220,7 @@ echo "  JBOSS_HOME: $JBOSS_HOME"
 echo ""
 echo "  JAVA: $JAVA"
 echo ""
-echo "  JAVA_OPTS: $JAVA_OPTS"
+echo "  JAVA_OPTS: $PROCESS_CONTROLLER_JAVA_OPTS"
 echo ""
 echo "========================================================================="
 echo ""
@@ -199,17 +229,17 @@ while true; do
    if [ "x$LAUNCH_JBOSS_IN_BACKGROUND" = "x" ]; then
       # Execute the JVM in the foreground
       eval \"$JAVA\" -D\"[Process Controller]\" $PROCESS_CONTROLLER_JAVA_OPTS \
-         \"-Dorg.jboss.boot.log.file=$JBOSS_LOG_DIR/process-controller.log\" \
-         \"-Dlogging.configuration=file:$JBOSS_CONFIG_DIR/logging.properties\" \
-         -jar \"$JBOSS_HOME/jboss-modules.jar\" \
-         -mp \"${JBOSS_MODULEPATH}\" \
+         \"-Dorg.jboss.boot.log.file="$JBOSS_LOG_DIR"/process-controller.log\" \
+         \"-Dlogging.configuration=file:"$JBOSS_CONFIG_DIR"/logging.properties\" \
+         -jar \""$JBOSS_HOME"/jboss-modules.jar\" \
+         -mp \""${JBOSS_MODULEPATH}"\" \
          org.jboss.as.process-controller \
-         -jboss-home \"$JBOSS_HOME\" \
+         -jboss-home \""$JBOSS_HOME"\" \
          -jvm \"$JAVA_FROM_JVM\" \
-         -mp \"${JBOSS_MODULEPATH}\" \
+         -mp \""${JBOSS_MODULEPATH}"\" \
          -- \
-         \"-Dorg.jboss.boot.log.file=$JBOSS_LOG_DIR/host-controller.log\" \
-         \"-Dlogging.configuration=file:$JBOSS_CONFIG_DIR/logging.properties\" \
+         \"-Dorg.jboss.boot.log.file="$JBOSS_LOG_DIR"/host-controller.log\" \
+         \"-Dlogging.configuration=file:"$JBOSS_CONFIG_DIR"/logging.properties\" \
          $HOST_CONTROLLER_JAVA_OPTS \
          -- \
          -default-jvm \"$JAVA_FROM_JVM\" \
@@ -218,17 +248,17 @@ while true; do
    else
       # Execute the JVM in the background
       eval \"$JAVA\" -D\"[Process Controller]\" $PROCESS_CONTROLLER_JAVA_OPTS \
-         \"-Dorg.jboss.boot.log.file=$JBOSS_LOG_DIR/process-controller.log\" \
-         \"-Dlogging.configuration=file:$JBOSS_CONFIG_DIR/logging.properties\" \
-         -jar \"$JBOSS_HOME/jboss-modules.jar\" \
-         -mp \"${JBOSS_MODULEPATH}\" \
+         \"-Dorg.jboss.boot.log.file="$JBOSS_LOG_DIR"/process-controller.log\" \
+         \"-Dlogging.configuration=file:"$JBOSS_CONFIG_DIR"/logging.properties\" \
+         -jar \""$JBOSS_HOME"/jboss-modules.jar\" \
+         -mp \""${JBOSS_MODULEPATH}"\" \
          org.jboss.as.process-controller \
-         -jboss-home \"$JBOSS_HOME\" \
+         -jboss-home \""$JBOSS_HOME"\" \
          -jvm \"$JAVA_FROM_JVM\" \
-         -mp \"${JBOSS_MODULEPATH}\" \
+         -mp \""${JBOSS_MODULEPATH}"\" \
          -- \
-         \"-Dorg.jboss.boot.log.file=$JBOSS_LOG_DIR/host-controller.log\" \
-         \"-Dlogging.configuration=file:$JBOSS_CONFIG_DIR/logging.properties\" \
+         \"-Dorg.jboss.boot.log.file="$JBOSS_LOG_DIR"/host-controller.log\" \
+         \"-Dlogging.configuration=file:"$JBOSS_CONFIG_DIR"/logging.properties\" \
          $HOST_CONTROLLER_JAVA_OPTS \
          -- \
          -default-jvm \"$JAVA_FROM_JVM\" \
